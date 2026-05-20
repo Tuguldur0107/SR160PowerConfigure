@@ -4,33 +4,23 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
-    <NuGetAudit>false</NuGetAudit>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>SR160PowerConfig</AssemblyName>
     <RootNamespace>SR160PowerConfig</RootNamespace>
-    <UsedAvaloniaProducts></UsedAvaloniaProducts>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <PlatformTarget>x86</PlatformTarget>
-    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="12.0.1" />
-    <PackageReference Include="Avalonia.Desktop" Version="12.0.1" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.1" />
-    <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.0.0" />
-    <PackageReference Include="System.IO.Ports" Version="10.0.6" />
+    <PackageReference Include="Avalonia" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.2.3" />
+    <PackageReference Include="System.IO.Ports" Version="9.0.3" />
   </ItemGroup>
 
   <!-- Native libraries per platform -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <None Include="UHFAPI.dll" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="libusb-1.0.dll" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="msvcp140.dll" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="vcruntime140.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="runtimes/win-x86/native/*" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
     <None Include="native/libUHFAPI.dylib" CopyToOutputDirectory="Always" Link="libUHFAPI.dylib" />

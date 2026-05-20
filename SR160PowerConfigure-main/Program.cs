@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using Avalonia;
 
 namespace SR160PowerConfig
@@ -11,12 +10,10 @@ namespace SR160PowerConfig
         {
             try
             {
-                File.AppendAllText(Path.Combine(AppContext.BaseDirectory, "startup.log"), $"Program.Main {DateTime.Now:O}{Environment.NewLine}");
                 BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
             }
             catch (Exception ex)
             {
-                File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "crash.log"), ex.ToString());
                 Console.Error.WriteLine("FATAL: " + ex);
                 Environment.Exit(1);
             }
