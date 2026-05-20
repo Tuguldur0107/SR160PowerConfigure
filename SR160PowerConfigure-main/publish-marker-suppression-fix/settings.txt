@@ -1,0 +1,2 @@
+Mode:Continuous
+Conn:USB

@@ -1,0 +1,20 @@
+bin/
+obj/
+*.exe
+*.dll
+*.pdb
+*.user
+.vs/
+*.bak
+
+# Native compiled binaries
+native/*.dylib
+native/sr160_power
+native/test_*
+!native/test_*.c
+
+# macOS
+.DS_Store
+
+# Avalonia designer
+*.axaml.bak

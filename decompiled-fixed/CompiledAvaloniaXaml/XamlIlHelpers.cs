@@ -1,0 +1,32 @@
+using System.Runtime.CompilerServices;
+using Avalonia.Controls;
+using Avalonia.Data;
+using Avalonia.Data.Core;
+
+namespace CompiledAvaloniaXaml;
+
+[CompilerGenerated]
+internal class XamlIlHelpers
+{
+	private static IPropertyInfo Avalonia_002EControls_002EDataGridBoundColumn_002CAvalonia_002EControls_002EDataGrid_002EBinding_0021Field;
+
+	private static object Avalonia_002EControls_002EDataGridBoundColumn_002CAvalonia_002EControls_002EDataGrid_002EBinding_0021Getter(object P_0)
+	{
+		return ((DataGridBoundColumn)P_0).Binding;
+	}
+
+	private static void Avalonia_002EControls_002EDataGridBoundColumn_002CAvalonia_002EControls_002EDataGrid_002EBinding_0021Setter(object P_0, object P_1)
+	{
+		((DataGridBoundColumn)P_0).Binding = (BindingBase)P_1;
+	}
+
+	public static IPropertyInfo Avalonia_002EControls_002EDataGridBoundColumn_002CAvalonia_002EControls_002EDataGrid_002EBinding_0021Property()
+	{
+		if (Avalonia_002EControls_002EDataGridBoundColumn_002CAvalonia_002EControls_002EDataGrid_002EBinding_0021Field != null)
+		{
+			return Avalonia_002EControls_002EDataGridBoundColumn_002CAvalonia_002EControls_002EDataGrid_002EBinding_0021Field;
+		}
+		Avalonia_002EControls_002EDataGridBoundColumn_002CAvalonia_002EControls_002EDataGrid_002EBinding_0021Field = new ClrPropertyInfo("Binding", Avalonia_002EControls_002EDataGridBoundColumn_002CAvalonia_002EControls_002EDataGrid_002EBinding_0021Getter, Avalonia_002EControls_002EDataGridBoundColumn_002CAvalonia_002EControls_002EDataGrid_002EBinding_0021Setter, typeof(BindingBase));
+		return Avalonia_002EControls_002EDataGridBoundColumn_002CAvalonia_002EControls_002EDataGrid_002EBinding_0021Field;
+	}
+}
