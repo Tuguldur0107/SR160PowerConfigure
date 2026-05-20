@@ -1,3 +1,0 @@
-C:\Users\wjno3\Downloads\SR160PowerConfigure-main (1)\decompiled-fixed\obj\Release\net10.0\SR160PowerConfig.csproj.AssemblyReference.cache
-C:\Users\wjno3\Downloads\SR160PowerConfigure-main (1)\decompiled-fixed\obj\Release\net10.0\SR160PowerConfig.GeneratedMSBuildEditorConfig.editorconfig
-C:\Users\wjno3\Downloads\SR160PowerConfigure-main (1)\decompiled-fixed\obj\Release\net10.0\SR160PowerConfig.csproj.CoreCompileInputs.cache
