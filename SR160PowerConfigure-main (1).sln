@@ -1,0 +1,29 @@
+	Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "SR160PowerConfigure-main", "SR160PowerConfigure-main", "{331A8F70-3F7A-535F-3C3C-CE925DDFFAA0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SR160PowerConfig", "SR160PowerConfigure-main\SR160PowerConfig.csproj", "{797FA987-A8A2-FAEC-793D-8C451437BBE8}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{797FA987-A8A2-FAEC-793D-8C451437BBE8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{797FA987-A8A2-FAEC-793D-8C451437BBE8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{797FA987-A8A2-FAEC-793D-8C451437BBE8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{797FA987-A8A2-FAEC-793D-8C451437BBE8}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{797FA987-A8A2-FAEC-793D-8C451437BBE8} = {331A8F70-3F7A-535F-3C3C-CE925DDFFAA0}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {44311B10-6DF6-411C-A27B-9F4914364981}
+	EndGlobalSection
+EndGlobal
