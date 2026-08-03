@@ -42,5 +42,22 @@ namespace SR160PowerConfig
 
         [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int UHF_GetReceived_EX(ref int uLenUii, byte[] uUii);
+
+        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int UHFGetBeep(ref byte mode);
+
+        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int UHFSetBeep(byte save, byte mode);
+
+        // mode: 0 = Dual (continuous inventory), 1 = Single (one tag then stop).
+        // Governs this reader's own on-board inventory session — the same
+        // session our SDK-driven scan loop (UHFInventory/UHF_GetReceived_EX)
+        // uses. save=1 persists the choice in the reader's flash.
+        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int UHFSetDualSingelMode(byte save, byte mode);
+
+        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int UHFGetDualSingelMode(ref byte mode);
+
     }
 }
