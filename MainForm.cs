@@ -19,7 +19,7 @@ namespace SR160PowerConfig
 
         // Win32: system-wide low-level keyboard hook. IMessageFilter
         // (PreFilterMessage, below) only sees keystrokes sent to this app's
-        // own windows, so on-screen tracking (the tag list, Auto/Hold
+        // own windows, so on-screen tracking (the tag list, Auto toggle
         // start-stop logic) goes dark the moment some other window is
         // focused. This hook mirrors the same decoding into our own list
         // regardless of focus — it never blocks anything, so the reader's
@@ -29,6 +29,24 @@ namespace SR160PowerConfig
         private const int WH_KEYBOARD_LL = 13;
         private const int WM_KEYDOWN = 0x0100;
         private const int WM_SYSKEYDOWN = 0x0104;
+
+        // Global toggle hotkey. The reader's trigger only emits keystrokes
+        // when it actually decodes a tag, so a pull aimed at empty air is
+        // invisible to us and can't stop a running scan (UHFGetIOStatus, the
+        // one SDK call that could have reported the switch directly, times
+        // out on this unit — the firmware doesn't implement it). This is the
+        // way to toggle without a tag in front of the antenna. RegisterHotKey
+        // rather than the existing low-level hook on purpose: it works while
+        // the window is hidden in the tray and needs no focus.
+        [DllImport("user32.dll")]
+        private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+        [DllImport("user32.dll")]
+        private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+        private const int WM_HOTKEY = 0x0312;
+        private const int ToggleHotkeyId = 0xA160;
+        private int toggleHotkeyVk = (int)Keys.F8;
+        private bool hotkeyRegistered;
+        private bool suppressHotkeySync;
 
         private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
@@ -93,6 +111,7 @@ namespace SR160PowerConfig
         private const string DefaultsAppliedValueName = "DefaultsApplied";
         private const string TargetProcessValueName = "TargetWindowProcess";
         private const string TargetTitleValueName = "TargetWindowTitle";
+        private const string HotkeyValueName = "ToggleHotkeyVk";
         private string savedTargetProcess;
         private string savedTargetTitle;
         private bool suppressTargetSync;
@@ -164,19 +183,22 @@ namespace SR160PowerConfig
         private string nativeEpcBuffer = "";
         private readonly object nativeEchoLock = new object();
         private readonly Dictionary<string, DateTime> nativeEchoedEpcs = new Dictionary<string, DateTime>();
-        // How long to keep a trigger-driven Hold session alive with no new
-        // keystrokes before assuming the trigger was released. There's no real
-        // "released" signal to read, so this is a guess — set generously since
-        // the reader can go quiet for several seconds while still actively
-        // hunting for a stubborn last tag in a larger batch, not just when the
-        // trigger was actually let go. A quick tap on the Scan button always
-        // stops the session immediately regardless of this timeout.
+        // How long an Auto session stays alive with no new tags before it
+        // stops itself. Zero (the default) disables that entirely — see the
+        // guard in ScanTimer_Tick — so Auto is a plain on/off toggle: it runs
+        // until a second trigger pull or a tap on the Scan button, and never
+        // ends on its own.
+        //
+        // The setting is still exposed (numAutoStop, Advanced tab) as a way
+        // out of one corner: the reader only emits keystrokes when it decodes
+        // a tag, so a pull aimed at empty air is invisible to us and can't
+        // toggle a running session off. With no timeout set, the on-screen
+        // Scan button is the only way to stop in that case. Dial in a few
+        // seconds here if that's a nuisance in practice.
         private DateTime lastScanActivity = DateTime.MinValue;
-        private TimeSpan autoStopIdle = TimeSpan.FromSeconds(5);
+        private TimeSpan autoStopIdle = TimeSpan.Zero;
         private RadioButton rbModeSingle;
         private RadioButton rbModeAuto;
-        private RadioButton rbAutoClick;
-        private RadioButton rbAutoHold;
 
         // Controls that need text updates
         private Label lblDevice;
@@ -185,7 +207,9 @@ namespace SR160PowerConfig
         private GroupBox grpScanMode;
         private Label lblInput;
         private Label lblScanModePick;
-        private Label lblAutoBehavior;
+        private Label lblHotkey;
+        private Label lblHotkeyStatus;
+        private ComboBox cmbHotkey;
         private Label lblCooldown;
         private Label lblAutoStop;
         private NumericUpDown numAutoStop;
@@ -251,6 +275,10 @@ namespace SR160PowerConfig
         protected override void OnLoad(EventArgs e)
         {
             base.OnLoad(e);
+            // After the handle exists (RegisterHotKey needs it) and after the
+            // combo is populated, so the stored choice can select an item.
+            LoadHotkey();
+            ApplyHotkey();
             autoConnectTimer = new Timer();
             autoConnectTimer.Interval = 3000;
             autoConnectTimer.Tick += delegate { TryAutoConnect(); EnsureExternalTargetResolved(); };
@@ -321,6 +349,10 @@ namespace SR160PowerConfig
             if (m.Msg == RawInputKeyboard.WM_INPUT)
             {
                 try { OnRawKeyboardInput(m.LParam); } catch { }
+            }
+            else if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == ToggleHotkeyId)
+            {
+                try { ToggleScanFromHotkey(); } catch { }
             }
             base.WndProc(ref m);
         }
@@ -848,7 +880,7 @@ namespace SR160PowerConfig
         // (see the externalTargetWindow field comment for why). Runs on a
         // background thread since PostMessage + the settle delay shouldn't
         // block the UI thread the keyboard hook and Raw Input share.
-        // Queued and delivered by a single worker (below) — when Auto/Hold
+        // Queued and delivered by a single worker (below) — when Auto
         // mode finds several tags in the same poll, each used to spawn its
         // own ThreadPool send with no coordination between them, so their
         // PostMessage character streams could interleave in the target
@@ -1183,7 +1215,7 @@ namespace SR160PowerConfig
             {
                 Text = Lang.Get("grpScanMode"),
                 Location = new Point(8, 92),
-                Size = new Size(460, 86)
+                Size = new Size(460, 56)
             };
             lblScanModePick = new Label { Text = Lang.Get("lblScanModePick"), Location = new Point(12, 26), AutoSize = true };
             rbModeSingle = new RadioButton { Text = Lang.Get("modeSingle"), Location = new Point(0, 0), AutoSize = true };
@@ -1193,18 +1225,12 @@ namespace SR160PowerConfig
             var pnlModeTop = new Panel { Location = new Point(100, 22), Size = new Size(240, 22) };
             pnlModeTop.Controls.AddRange(new Control[] { rbModeSingle, rbModeAuto });
 
-            lblAutoBehavior = new Label { Text = Lang.Get("lblAutoBehavior"), Location = new Point(12, 54), AutoSize = true };
-            rbAutoClick = new RadioButton { Text = Lang.Get("modeAutoClick"), Location = new Point(0, 0), AutoSize = true };
-            rbAutoHold = new RadioButton { Text = Lang.Get("modeAutoHold"), Location = new Point(90, 0), AutoSize = true, Checked = true };
-            var pnlModeSub = new Panel { Location = new Point(100, 50), Size = new Size(240, 22) };
-            pnlModeSub.Controls.AddRange(new Control[] { rbAutoClick, rbAutoHold });
-
-            grpScanMode.Controls.AddRange(new Control[] { lblScanModePick, pnlModeTop, lblAutoBehavior, pnlModeSub });
+            grpScanMode.Controls.AddRange(new Control[] { lblScanModePick, pnlModeTop });
 
             btnScan = new Button
             {
                 Text = Lang.Get("btnScan"),
-                Location = new Point(8, 188),
+                Location = new Point(8, 158),
                 Size = new Size(180, 36),
                 Enabled = false,
                 Font = new Font("Segoe UI", 11, FontStyle.Bold),
@@ -1227,15 +1253,15 @@ namespace SR160PowerConfig
             lblTagCount = new Label
             {
                 Text = Lang.Get("tagCount", 0),
-                Location = new Point(200, 198),
+                Location = new Point(200, 168),
                 AutoSize = true,
                 Font = new Font("Segoe UI", 11, FontStyle.Bold)
             };
 
-            lblInput = new Label { Text = Lang.Get("lblEpcInput"), Location = new Point(8, 240), AutoSize = true };
+            lblInput = new Label { Text = Lang.Get("lblEpcInput"), Location = new Point(8, 210), AutoSize = true };
             txtEpcInput = new TextBox
             {
-                Location = new Point(80, 237),
+                Location = new Point(80, 207),
                 Size = new Size(276, 24),
                 Font = new Font("Consolas", 10),
                 CharacterCasing = CharacterCasing.Upper,
@@ -1244,15 +1270,15 @@ namespace SR160PowerConfig
             btnClearList = new Button
             {
                 Text = Lang.Get("btnClear"),
-                Location = new Point(366, 236),
+                Location = new Point(366, 206),
                 Size = new Size(102, 26)
             };
             btnClearList.Click += delegate { ClearTagList(); };
 
             lvTags = new ListView
             {
-                Location = new Point(8, 270),
-                Size = new Size(460, 244),
+                Location = new Point(8, 240),
+                Size = new Size(460, 274),
                 View = View.Details,
                 FullRowSelect = true,
                 GridLines = true,
@@ -1421,7 +1447,7 @@ namespace SR160PowerConfig
             {
                 Text = Lang.Get("grpAdvanced"),
                 Location = new Point(8, 8),
-                Size = new Size(460, 216)
+                Size = new Size(460, 252)
             };
             lblCooldown = new Label { Text = Lang.Get("lblCooldown"), Location = new Point(12, 30), AutoSize = true };
             numCooldown = new NumericUpDown
@@ -1442,7 +1468,8 @@ namespace SR160PowerConfig
             {
                 Minimum = 0,
                 Maximum = 60,
-                Value = 5,
+                // 0 = never auto-stop; Auto is then a pure on/off toggle.
+                Value = 0,
                 Location = new Point(360, 58),
                 Size = new Size(80, 25)
             };
@@ -1476,9 +1503,34 @@ namespace SR160PowerConfig
             chkStartWithWindows = new CheckBox { Text = Lang.Get("chkStartWithWindows"), Location = new Point(12, 178), AutoSize = true };
             chkStartWithWindows.CheckedChanged += ChkStartWithWindows_CheckedChanged;
 
+            lblHotkey = new Label { Text = Lang.Get("lblHotkey"), Location = new Point(12, 210), AutoSize = true };
+            cmbHotkey = new ComboBox
+            {
+                Location = new Point(300, 206),
+                Size = new Size(140, 25),
+                DropDownStyle = ComboBoxStyle.DropDownList
+            };
+            // Function keys only: they're the keys least likely to be wanted
+            // by whatever window the operator is actually typing into, and a
+            // global hotkey is stolen from every other app on the machine.
+            cmbHotkey.Items.Add(new HotkeyChoice(0, Lang.Get("hotkeyNone")));
+            for (int f = (int)Keys.F1; f <= (int)Keys.F12; f++)
+                cmbHotkey.Items.Add(new HotkeyChoice(f, ((Keys)f).ToString()));
+            cmbHotkey.SelectedIndexChanged += HotkeyChoice_Changed;
+
+            lblHotkeyStatus = new Label
+            {
+                Text = "",
+                Location = new Point(28, 232),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 8),
+                ForeColor = Color.DimGray
+            };
+
             grpAdvanced.Controls.AddRange(new Control[] {
                 lblCooldown, numCooldown, lblAutoStop, numAutoStop, chkRepeatKeepsAlive,
-                chkClearOnScan, chkMinimizeToTray, chkStartWithWindows
+                chkClearOnScan, chkMinimizeToTray, chkStartWithWindows,
+                lblHotkey, cmbHotkey, lblHotkeyStatus
             });
 
             tabAdvanced.Controls.Add(grpAdvanced);
@@ -1510,7 +1562,23 @@ namespace SR160PowerConfig
             btnSave.Text = Lang.Get("btnSave");
             grpScanMode.Text = Lang.Get("grpScanMode");
             lblScanModePick.Text = Lang.Get("lblScanModePick");
-            lblAutoBehavior.Text = Lang.Get("lblAutoBehavior");
+            lblHotkey.Text = Lang.Get("lblHotkey");
+            // Rebuilds the status line in the new language (and the "None"
+            // item, which is the only translated entry in the list).
+            suppressHotkeySync = true;
+            if (cmbHotkey.Items.Count > 0)
+            {
+                int keep = cmbHotkey.SelectedIndex;
+                cmbHotkey.Items[0] = new HotkeyChoice(0, Lang.Get("hotkeyNone"));
+                cmbHotkey.SelectedIndex = keep;
+            }
+            suppressHotkeySync = false;
+            if (hotkeyRegistered)
+                lblHotkeyStatus.Text = Lang.Get("hotkeyOk", ((Keys)toggleHotkeyVk).ToString());
+            else if (toggleHotkeyVk == 0)
+                lblHotkeyStatus.Text = Lang.Get("hotkeyOff");
+            else
+                lblHotkeyStatus.Text = Lang.Get("hotkeyBusy", ((Keys)toggleHotkeyVk).ToString());
             lblCooldown.Text = Lang.Get("lblCooldown");
             lblAutoStop.Text = Lang.Get("lblAutoStop");
             chkRepeatKeepsAlive.Text = Lang.Get("chkRepeatKeepsAlive");
@@ -1519,8 +1587,6 @@ namespace SR160PowerConfig
             chkStartWithWindows.Text = Lang.Get("chkStartWithWindows");
             rbModeSingle.Text = Lang.Get("modeSingle");
             rbModeAuto.Text = Lang.Get("modeAuto");
-            rbAutoClick.Text = Lang.Get("modeAutoClick");
-            rbAutoHold.Text = Lang.Get("modeAutoHold");
             grpTrigger.Text = Lang.Get("grpTrigger");
             if (!isLearningTriggerDevice) btnLearnTrigger.Text = Lang.Get("btnLearnTrigger");
             UpdateTriggerDeviceStatus();
@@ -1796,22 +1862,134 @@ namespace SR160PowerConfig
         }
 
 
-        private enum ScanMode { Single, AutoClickToggle, AutoHoldMulti }
+        // Item type for cmbHotkey: carries the virtual-key code while showing
+        // a readable name. 0 = no hotkey.
+        private class HotkeyChoice
+        {
+            public readonly int Vk;
+            private readonly string label;
+            public HotkeyChoice(int vk, string label) { Vk = vk; this.label = label; }
+            public override string ToString() { return label; }
+        }
+
+        private void HotkeyChoice_Changed(object sender, EventArgs e)
+        {
+            if (suppressHotkeySync) return;
+            HotkeyChoice choice = cmbHotkey.SelectedItem as HotkeyChoice;
+            toggleHotkeyVk = (choice == null) ? 0 : choice.Vk;
+            ApplyHotkey();
+            SaveHotkey();
+        }
+
+        // Re-registers from scratch: a hotkey can't be changed in place, and
+        // leaving the old one claimed would keep stealing that key from every
+        // other app on the machine.
+        private void ApplyHotkey()
+        {
+            if (!IsHandleCreated) return;
+
+            if (hotkeyRegistered)
+            {
+                try { UnregisterHotKey(Handle, ToggleHotkeyId); } catch { }
+                hotkeyRegistered = false;
+            }
+
+            if (toggleHotkeyVk == 0)
+            {
+                if (lblHotkeyStatus != null)
+                {
+                    lblHotkeyStatus.Text = Lang.Get("hotkeyOff");
+                    lblHotkeyStatus.ForeColor = Color.DimGray;
+                }
+                return;
+            }
+
+            bool ok = false;
+            try { ok = RegisterHotKey(Handle, ToggleHotkeyId, 0, (uint)toggleHotkeyVk); }
+            catch { }
+            hotkeyRegistered = ok;
+
+            if (lblHotkeyStatus == null) return;
+            if (ok)
+            {
+                lblHotkeyStatus.Text = Lang.Get("hotkeyOk", ((Keys)toggleHotkeyVk).ToString());
+                lblHotkeyStatus.ForeColor = Color.Green;
+            }
+            else
+            {
+                // Almost always means another running program already owns
+                // that key system-wide. Say so rather than failing silently,
+                // or the key just looks broken.
+                lblHotkeyStatus.Text = Lang.Get("hotkeyBusy", ((Keys)toggleHotkeyVk).ToString());
+                lblHotkeyStatus.ForeColor = Color.Firebrick;
+            }
+        }
+
+        private void SaveHotkey()
+        {
+            try
+            {
+                using (Microsoft.Win32.RegistryKey key =
+                    Microsoft.Win32.Registry.CurrentUser.CreateSubKey(SettingsRegistryKey))
+                {
+                    if (key == null) return;
+                    key.SetValue(HotkeyValueName, toggleHotkeyVk);
+                }
+            }
+            catch { }
+        }
+
+        private void LoadHotkey()
+        {
+            try
+            {
+                using (Microsoft.Win32.RegistryKey key =
+                    Microsoft.Win32.Registry.CurrentUser.OpenSubKey(SettingsRegistryKey, false))
+                {
+                    if (key != null)
+                    {
+                        object stored = key.GetValue(HotkeyValueName);
+                        if (stored is int) toggleHotkeyVk = (int)stored;
+                    }
+                }
+            }
+            catch { }
+
+            suppressHotkeySync = true;
+            for (int i = 0; i < cmbHotkey.Items.Count; i++)
+            {
+                HotkeyChoice choice = cmbHotkey.Items[i] as HotkeyChoice;
+                if (choice != null && choice.Vk == toggleHotkeyVk)
+                {
+                    cmbHotkey.SelectedIndex = i;
+                    break;
+                }
+            }
+            if (cmbHotkey.SelectedIndex < 0) cmbHotkey.SelectedIndex = 0;
+            suppressHotkeySync = false;
+        }
+
+        // Same toggle the Scan button performs, reachable with no tag in
+        // front of the antenna and without focusing the window.
+        private void ToggleScanFromHotkey()
+        {
+            if (!isConnected) return;
+            if (isScanning) StopScanning();
+            else StartScanning();
+        }
+
+        private enum ScanMode { Single, AutoClickToggle }
 
         private ScanMode GetScanMode()
         {
             if (rbModeSingle.Checked) return ScanMode.Single;
-            if (rbAutoClick.Checked) return ScanMode.AutoClickToggle;
-            return ScanMode.AutoHoldMulti;
+            return ScanMode.AutoClickToggle;
         }
 
         private bool suppressScanModeSync;
 
         private void ScanModeChanged(object sender, EventArgs e)
         {
-            bool auto = rbModeAuto.Checked;
-            rbAutoClick.Enabled = auto;
-            rbAutoHold.Enabled = auto;
             if (isScanning) StopScanning();
             SyncDualSingleModeToHardware();
         }
@@ -1822,9 +2000,8 @@ namespace SR160PowerConfig
         // is distinct from WorkMode, which only governs the physical
         // trigger's standalone keystroke path and was already a dead end for
         // that (see HandleTriggerPull). save=1 so the choice survives a
-        // power cycle even without this app running. Auto Click vs Hold and
-        // the recount cooldown have no hardware equivalent — those stay
-        // software-only.
+        // power cycle even without this app running. The recount cooldown has
+        // no hardware equivalent — that stays software-only.
         private void SyncDualSingleModeToHardware()
         {
             if (suppressScanModeSync || !isConnected) return;
@@ -1873,15 +2050,13 @@ namespace SR160PowerConfig
         //  - Single: the natural keystroke path already IS single-shot capture.
         //    Don't also start the API polling loop — that was double-capturing
         //    the same physical read (once via keystroke, once via SDK poll).
-        //  - Auto/Toggle: first pull starts the background poll loop, next
+        //  - Auto: first pull starts the background poll loop, next
         //    genuinely-new pull stops it. "Genuinely new" means there was a
         //    real gap beforehand — otherwise this is just another tag from the
         //    SAME squeeze (a single pull can read several tags back-to-back),
-        //    not the user pressing again to toggle it off.
-        //  - Auto/Hold: keystroke messages have no "key released" signal, so
-        //    true press-and-hold can't be detected. Approximate it: each pull
-        //    refreshes an idle deadline (see ScanTimer_Tick); the loop keeps
-        //    running as long as pulls keep coming, and auto-stops once they do.
+        //    not the user pressing again to toggle it off. Nothing else stops
+        //    a running session unless the optional idle auto-stop is turned
+        //    on (off by default — see autoStopIdle).
         private void HandleTriggerPull(TimeSpan gapSinceLastKeystroke)
         {
             // Only ever called while connected — Raw Input (OnRawKeyboardInput)
@@ -1899,15 +2074,6 @@ namespace SR160PowerConfig
                 // ScanTimer_Tick already stops itself after the first new
                 // tag whenever GetScanMode() is Single.
                 if (!isScanning) StartScanning();
-                return;
-            }
-
-            if (mode == ScanMode.AutoHoldMulti)
-            {
-                if (!isScanning)
-                {
-                    StartScanning();
-                }
                 return;
             }
 
@@ -1979,11 +2145,12 @@ namespace SR160PowerConfig
         {
             if (!isScanning) return;
 
-            // Ends a scan without needing the trigger. The trigger can only
-            // be detected via the keystrokes the reader emits, and it only
-            // emits those when it actually decodes a tag — so pointing at
-            // empty air and squeezing is invisible to us, leaving no way to
-            // stop. Instead the session ends once it stops finding anything
+            // Opt-in (autoStopIdle defaults to 0 = off): ends a scan without
+            // needing the trigger. The trigger can only be detected via the
+            // keystrokes the reader emits, and it only emits those when it
+            // actually decodes a tag — so pointing at empty air and squeezing
+            // is invisible to us, leaving no way to stop but the Scan button.
+            // When enabled, the session ends once it stops finding anything
             // NEW (see ReadTagsFromApi): a sweep is done when every tag in
             // range has been collected, so re-reads of known tags must not
             // hold it open, or pointing at a full rack would never stop.
@@ -2114,6 +2281,11 @@ namespace SR160PowerConfig
             }
 
             if (trayIcon != null) trayIcon.Visible = false;
+            if (hotkeyRegistered)
+            {
+                try { UnregisterHotKey(Handle, ToggleHotkeyId); } catch { }
+                hotkeyRegistered = false;
+            }
             if (keyboardHookHandle != IntPtr.Zero)
             {
                 UnhookWindowsHookEx(keyboardHookHandle);

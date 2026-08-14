@@ -1,0 +1,24 @@
+UHFDownloadUserParam ret=0 len=209
+
+mode=5;
+power=23;
+buzzer=0;
+pc=0;
+pointer=0;
+length=0;
+timeout=0;
+new_line=2;
+prefix=;
+suffix=;
+epc_format=1;
+data_bank=0;
+user_addr=0;
+user_len=0;
+inventory=0;
+idle=30;
+keymap=0;
+kb_gap=3;
+tone=0;
+key_mode=1;
+dec_beg=0;
+dec_len=0
