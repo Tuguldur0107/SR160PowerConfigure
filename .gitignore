@@ -1,0 +1,17 @@
+# Build snapshots. Earlier work kept a full self-contained publish per
+# experiment (.codex-build-check had eleven, ~128 MB each); that is what
+# grew this repo past 1.9 GB. Keep experiments out of the tree.
+.codex-build-check/
+publish-*/
+SR160PowerConfig-*/
+
+# The two release binaries in the repo root are tracked on purpose — they
+# are the assets attached to each GitHub release — so they are not listed
+# here. Anything else a build drops is not.
+bin/
+obj/
+*.pdb
+
+# Written by the old Avalonia app beside its exe; the current build keeps
+# its settings in the registry instead.
+settings.txt
