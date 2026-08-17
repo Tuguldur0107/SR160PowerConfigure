@@ -103,6 +103,12 @@ namespace SR160PowerConfig
 
         // Release tags look like "v1.3" or "1.3.1"; Version wants at least
         // major.minor, so a bare "v2" is padded rather than rejected.
+        //
+        // Padded to all FOUR components on purpose. Version leaves omitted
+        // components at -1, not 0, and -1 sorts BELOW 0 — so a "v1.2" tag
+        // parsed as 1.2.-1.-1 compares as older than an installed 1.2.0.0
+        // and the release is silently skipped. That happened to the real v1.2
+        // release: no 1.2.0.0 build could ever see it.
         private static Version ParseVersion(string tag)
         {
             string cleaned = tag.Trim();
@@ -111,7 +117,8 @@ namespace SR160PowerConfig
             Match m = Regex.Match(cleaned, @"^\d+(\.\d+){0,3}");
             if (!m.Success) return null;
             cleaned = m.Value;
-            if (!cleaned.Contains(".")) cleaned += ".0";
+            for (int parts = cleaned.Split('.').Length; parts < 4; parts++)
+                cleaned += ".0";
             try { return new Version(cleaned); }
             catch { return null; }
         }
